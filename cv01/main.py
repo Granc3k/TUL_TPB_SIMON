@@ -215,6 +215,6 @@ def get_file_size(filepath):
 
 
 if __name__ == "__main__":
-    #max_size_mb = 12  # nastavení target velikosti pro male soubory pro ukládání
-    #main(max_size_mb, 400, 100)
-    merge_files("90a9ae9e-1fa6-4e49-b125-6df7e744f626",100, "./cv01/data/90a9ae9e-1fa6-4e49-b125-6df7e744f626")
+    max_size_mb = 12  # nastavení target velikosti pro male soubory pro ukládání
+    main(max_size_mb, 500, 100)
+    #merge_files("90a9ae9e-1fa6-4e49-b125-6df7e744f626",100, "./cv01/data/90a9ae9e-1fa6-4e49-b125-6df7e744f626")
