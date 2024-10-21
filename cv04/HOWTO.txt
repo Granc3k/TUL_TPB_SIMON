@@ -1,0 +1,11 @@
+changnout cd na cv04
+
+docker-compose up -d
+
+docker exec -i -t cv04-spark-1 /bin/bash
+
+jít na localhost:8080
+
+cd /files/
+
+spark-submit "nazvy_souboru"
