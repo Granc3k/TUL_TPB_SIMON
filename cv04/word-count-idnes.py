@@ -1,43 +1,34 @@
 from pyspark import SparkConf, SparkContext
 import re
-import json
 
-# Nastavení Spark konfigurace se zvýšenou pamětí a CPU jádry
 conf = SparkConf() \
-    .setMaster("spark://49207e712981:7077") \
-    .setAppName("WordCount")
+    .setMaster("spark://8b3a61a1efb9:7077") \
+    .setAppName("WordCount") \
+    .set("spark.executor.memory", "4g") \
+    .set("spark.driver.memory", "4g") \
+    .set("spark.rpc.message.maxSize", "2046")
 sc = SparkContext(conf = conf)
 
-# Funkce pro normalizaci textu
 def normalizeText(text):
     lowercased = text.lower()
-    cleaned = re.sub(r'[^\w\s]', '', lowercased)  # odstranění interpunkce
+    cleaned = re.sub(r'[^\w\s]', '', lowercased)
     return cleaned
 
-# Načtení JSON souboru do proměnné data
-with open('/files/data/idnes_articles.json', 'r', encoding='utf-8') as f:
-    data = json.load(f)
+print("Loading data...")
+input = sc.textFile("/files/data/idnes_articles_text.txt")
+print("Data loaded.")
+print("---------------")
+print("Processing data...")
 
-# Vytvoření seznamu obsahu článků, kontrola, že 'content' existuje
-articles_texts = [ ' '.join(article['content']) for article in data if 'content' in article]
+words = input.flatMap(lambda x: normalizeText(x).split())
 
-# Převedení textů na RDD (rozparalelizování na úrovni článků)
-content_rdd = sc.parallelize(articles_texts)
+wordCounts = words.map(lambda x: (x, 1))
 
-# Normalizace textu, rozdělení na slova a filtrace podle délky (min. 6 znaků)
-words = content_rdd.flatMap(lambda text: normalizeText(text).split())
-long_words = words.filter(lambda word: len(word) >= 6)
+wordCountsReduced = wordCounts.reduceByKey(lambda x, y: x + y)
 
-# Spočítání výskytů jednotlivých slov
-wordCounts = long_words.map(lambda word: (word, 1)).reduceByKey(lambda x, y: x + y)
+sortedWordCounts = wordCountsReduced.map(lambda x: (x[1], x[0])).sortByKey(False)
 
-# Seřazení podle počtu výskytů (největší počet jako první)
-sortedWordCounts = wordCounts.map(lambda x: (x[1], x[0])).sortByKey(False)
+results = sortedWordCounts.take(20)
 
-# Vybrání 20 nejčastějších slov
-top_20_words = sortedWordCounts.take(20)
-
-# Výpis výsledků
-print("Nejčastější slova:")
-for count, word in top_20_words:
+for count, word in results:
     print(f"{word}: {count}")
