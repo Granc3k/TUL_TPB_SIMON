@@ -1,6 +1,7 @@
 from pyspark import SparkConf, SparkContext
+master = "spark://aab3dd1bb876:7077"
 
-conf = SparkConf().setMaster("spark://85b8a6a7d728:7077").setAppName("TotalSpentByCustomer")
+conf = SparkConf().setMaster(master).setAppName("TotalSpentByCustomer")
 sc = SparkContext(conf=conf)
 
 input = sc.textFile("/files/data/customer-orders.csv")

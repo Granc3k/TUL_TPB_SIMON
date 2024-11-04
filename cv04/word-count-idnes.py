@@ -1,8 +1,8 @@
 from pyspark import SparkConf, SparkContext
 import re
+master = "spark://aab3dd1bb876:7077"
 
-conf = SparkConf() \
-    .setMaster("spark://85b8a6a7d728:7077") \
+conf = SparkConf().setMaster(master) \
     .setAppName("WordCount") \
     .set("spark.executor.memory", "4g") \
     .set("spark.driver.memory", "4g") \
