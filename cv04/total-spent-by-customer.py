@@ -1,17 +1,17 @@
 from pyspark import SparkConf, SparkContext
 
-conf = SparkConf().setMaster("spark://172.18.0.5:7077").setAppName("TotalSpentByCustomer")
+conf = SparkConf().setMaster("spark://85b8a6a7d728:7077").setAppName("TotalSpentByCustomer")
 sc = SparkContext(conf=conf)
 
 input = sc.textFile("/files/data/customer-orders.csv")
 
 def parseLine(line):
-    parts = line.split(",")  # Rozdělení řádku podle čárky
-    customer_id = parts[0]   # ID zákazníka
-    price = float(parts[2])   # Cena jako float
+    parts = line.split(",")  
+    customer_id = parts[0]   
+    price = float(parts[2])
     return (customer_id, price)
 
-# Zpracování vstupních dat
+# Zpracování vstupních dat na RDD
 orders = input.map(parseLine)
 
 # Spočítání celkové částky pro každého zákazníka

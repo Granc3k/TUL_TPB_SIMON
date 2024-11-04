@@ -6,6 +6,8 @@ docker exec -i -t cv04-spark-1 /bin/bash
 
 jít na localhost:8080
 
+cp /files/data/log4j2.properties /opt/bitnami/spark/conf/
+
 cd /files/
 
 spark-submit "nazvy_souboru"

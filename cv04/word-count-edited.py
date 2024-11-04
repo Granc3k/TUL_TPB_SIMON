@@ -1,7 +1,7 @@
 from pyspark import SparkConf, SparkContext
 import re
 
-conf = SparkConf().setMaster("spark://36d524166078:7077").setAppName("WordCount")
+conf = SparkConf().setMaster("spark://85b8a6a7d728:7077").setAppName("WordCount")
 sc = SparkContext(conf = conf)
 
 def normalizeText(text):

@@ -1,6 +1,6 @@
 from pyspark import SparkConf, SparkContext
 
-conf = SparkConf().setMaster("spark://36d524166078:7077").setAppName("MaxTemperatures")
+conf = SparkConf().setMaster("spark://85b8a6a7d728:7077").setAppName("MaxTemperatures")
 sc = SparkContext(conf = conf)
 
 

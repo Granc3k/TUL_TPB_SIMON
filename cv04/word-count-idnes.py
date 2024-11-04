@@ -2,7 +2,7 @@ from pyspark import SparkConf, SparkContext
 import re
 
 conf = SparkConf() \
-    .setMaster("spark://8b3a61a1efb9:7077") \
+    .setMaster("spark://85b8a6a7d728:7077") \
     .setAppName("WordCount") \
     .set("spark.executor.memory", "4g") \
     .set("spark.driver.memory", "4g") \
@@ -22,7 +22,9 @@ print("Processing data...")
 
 words = input.flatMap(lambda x: normalizeText(x).split())
 
-wordCounts = words.map(lambda x: (x, 1))
+filteredWords = words.filter(lambda x: len(x) >= 6)
+
+wordCounts = filteredWords.map(lambda x: (x, 1))
 
 wordCountsReduced = wordCounts.reduceByKey(lambda x, y: x + y)
 
