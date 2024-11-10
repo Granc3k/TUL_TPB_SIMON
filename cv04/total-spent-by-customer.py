@@ -1,4 +1,6 @@
+# made by Martin "Granc3k" Šimon
 from pyspark import SparkConf, SparkContext
+
 master = "spark://aab3dd1bb876:7077"
 
 conf = SparkConf().setMaster(master).setAppName("TotalSpentByCustomer")
@@ -6,11 +8,13 @@ sc = SparkContext(conf=conf)
 
 input = sc.textFile("/files/data/customer-orders.csv")
 
+
 def parseLine(line):
-    parts = line.split(",")  
-    customer_id = parts[0]   
+    parts = line.split(",")
+    customer_id = parts[0]
     price = float(parts[2])
     return (customer_id, price)
+
 
 # Zpracování vstupních dat na RDD
 orders = input.map(parseLine)

@@ -1,18 +1,25 @@
+# made by Martin "Granc3k" Šimon
 from pyspark import SparkConf, SparkContext
 import re
+
 master = "spark://aab3dd1bb876:7077"
 
-conf = SparkConf().setMaster(master) \
-    .setAppName("WordCount") \
-    .set("spark.executor.memory", "4g") \
-    .set("spark.driver.memory", "4g") \
+conf = (
+    SparkConf()
+    .setMaster(master)
+    .setAppName("WordCount")
+    .set("spark.executor.memory", "4g")
+    .set("spark.driver.memory", "4g")
     .set("spark.rpc.message.maxSize", "2046")
-sc = SparkContext(conf = conf)
+)
+sc = SparkContext(conf=conf)
+
 
 def normalizeText(text):
     lowercased = text.lower()
-    cleaned = re.sub(r'[^\w\s]', '', lowercased)
+    cleaned = re.sub(r"[^\w\s]", "", lowercased)
     return cleaned
+
 
 print("Loading data...")
 input = sc.textFile("/files/data/idnes_articles_text.txt")

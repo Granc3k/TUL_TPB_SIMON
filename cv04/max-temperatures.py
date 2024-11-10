@@ -1,12 +1,14 @@
+# made by Martin "Granc3k" Šimon
 from pyspark import SparkConf, SparkContext
+
 master = "spark://aab3dd1bb876:7077"
 
 conf = SparkConf().setMaster(master).setAppName("MaxTemperatures")
-sc = SparkContext(conf = conf)
+sc = SparkContext(conf=conf)
 
 
 def parseLine(line):
-    fields = line.split(',')
+    fields = line.split(",")
     stationID = fields[0]
     entryType = fields[2]
     temperature = float(fields[3]) * 0.1

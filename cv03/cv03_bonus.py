@@ -1,3 +1,4 @@
+# made by Martin "Granc3k" Šimon
 import json
 from pymongo import MongoClient
 import random

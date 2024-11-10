@@ -1,3 +1,4 @@
+# made by Martin "Granc3k" Šimon
 import json
 from datetime import datetime
 import matplotlib.pyplot as plt
