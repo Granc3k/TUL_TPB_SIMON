@@ -1,6 +1,6 @@
 # Podklady k předmětu TPB na univerzitě TUL
 
-Tento repozitář obsahuje podklady k předmětu TPB na Technické univerzitě v Liberci (TUL).
+Tento repozitář obsahuje podklady a vypracované civčení k předmětu TPB na Technické univerzitě v Liberci (TUL).
 
 ## Autorská práva
 
