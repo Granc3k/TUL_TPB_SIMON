@@ -9,4 +9,8 @@ cv06/data/realestate.csv
 cv06/data/predictions.csv
 cv07/data/*
 cv08/data/*
-cv09/BONUS/*
+cv09/BONUS/lilian_pokus.py
+cv09/BONUS/idnes.json
+cv09/BONUS/idnes_big.json
+cv09/BONUS/idnes_small.json
+cv09/BONUS/out/*

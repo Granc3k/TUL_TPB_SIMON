@@ -1,0 +1,5 @@
+docker-compose build
+
+docker-compose up --scale taskmanager=2 -d
+
+docker exec -i -t jobmanager /bin/bash
