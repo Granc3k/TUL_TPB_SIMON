@@ -1,126 +1,146 @@
-from pyflink.table import EnvironmentSettings, TableEnvironment, DataTypes, Schema, FormatDescriptor, TableDescriptor
-from pyflink.table.window import Slide
+from pyflink.table import (
+    EnvironmentSettings,
+    TableEnvironment,
+    DataTypes,
+    Schema,
+    FormatDescriptor,
+    TableDescriptor,
+)
+from pyflink.table.udf import udf
 from pyflink.table.expressions import col, lit
+from datetime import datetime
+import json
 
-# Set up the streaming environment
+# Funkce pro převod JSON stringu na dictionary
+def parse_json(value):
+    try:
+        return json.loads(value)
+    except Exception as e:
+        print(f"Failed to parse JSON: {e}")
+        return {}
+
+# UDFs pro parsing atributů z JSON
+@udf(result_type=DataTypes.STRING())
+def parse_title(value):
+    return parse_json(value).get("title", "")
+
+@udf(result_type=DataTypes.INT())
+def parse_comment_count(value):
+    return parse_json(value).get("commentCount", 0)
+
+@udf(result_type=DataTypes.STRING())
+def parse_content(value):
+    article = parse_json(value)
+    content_items = article.get("content", [])
+    if isinstance(content_items, list):
+        # Spojíme všechny části obsahu do jednoho řetězce
+        return " ".join(content_items).replace("\n", " ")
+    return ""
+
+
+@udf(result_type=DataTypes.STRING())
+def parse_date_published(value):
+    return parse_json(value).get("datePublished", "")
+
+@udf(result_type=DataTypes.STRING())
+def current_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# Nastavení prostředí
 env_settings = EnvironmentSettings.in_streaming_mode()
 table_env = TableEnvironment.create(environment_settings=env_settings)
 
-# Create the Kafka source table
+# Kafka zdroj
 table_env.create_temporary_table(
-    'kafka_source',
-    TableDescriptor.for_connector('kafka')
-        .schema(Schema.new_builder()
-                .column('title', DataTypes.STRING())
-                .column('comments', DataTypes.INT())
-                .column('publish_date', DataTypes.STRING())
-                .column('content', DataTypes.STRING())
-                .column('publish_ts', DataTypes.TIMESTAMP(3))
-                .column('event_time', DataTypes.TIMESTAMP(3))
-                .watermark('event_time', 'event_time - INTERVAL \'5\' SECOND')
-                .build())
-        .option('topic', 'test-topic')
-        .option('properties.bootstrap.servers', 'kafka:9092')
-        .option('properties.group.id', 'flink-group')
-        .option('scan.startup.mode', 'latest-offset')
-        .format(FormatDescriptor.for_format('json').build())
-        .build())
-
-# Create sink tables
-table_env.create_temporary_table(
-    'console_sink',
-    TableDescriptor.for_connector("print")
-        .schema(Schema.new_builder()
-                .column('title', DataTypes.STRING())
-                .build())
-        .build())
-
-table_env.create_temporary_table(
-    'high_priority_sink',
-    TableDescriptor.for_connector("filesystem")
-        .schema(Schema.new_builder()
-                .column('title', DataTypes.STRING())
-                .column('comments', DataTypes.INT())
-                .build())
-        .option("path", "/files/out/high_priority_articles")
-        .format("csv")
-        .build())
-
-table_env.create_temporary_table(
-    'out_of_order_sink',
-    TableDescriptor.for_connector("filesystem")
-        .schema(Schema.new_builder()
-                .column('title', DataTypes.STRING())
-                .column('publish_date', DataTypes.STRING())
-                .column('previous_publish_date', DataTypes.STRING())
-                .build())
-        .option("path", "/files/out/out_of_order_articles")
-        .format("csv")
-        .build())
-
-table_env.create_temporary_table(
-    'window_stats_sink',
-    TableDescriptor.for_connector("filesystem")
-        .schema(Schema.new_builder()
-                .column('window_start', DataTypes.TIMESTAMP(3))
-                .column('window_end', DataTypes.TIMESTAMP(3))
-                .column('title', DataTypes.STRING())
-                .column('total_articles', DataTypes.BIGINT())
-                .column('war_mentions', DataTypes.BIGINT())
-                .build())
-        .option("path", "/files/out/window_stats")
-        .format("csv")
-        .build())
-
-# Process data
-articles = table_env.from_path("kafka_source")
-
-# Print article titles to console
-article_titles = articles.select(col('title'))
-
-# Detect active articles with more than 100 comments
-high_priority_articles = articles.filter(col('comments') > 100).select(col('title'), col('comments'))
-
-# Detect out-of-order articles
-articles = articles.add_or_replace_columns(
-    col("publish_date").cast(DataTypes.TIMESTAMP(3)).alias("publish_ts")
-)
-out_of_order_articles = articles.filter(
-    col("publish_ts") < lit("1970-01-01 00:00:00.000").cast(DataTypes.TIMESTAMP(3))  # Example condition
-).select(
-    col('title'),
-    col('publish_date'),
-    lit("1970-01-01 00:00:00.000").alias("previous_publish_date")
+    "kafka_source",
+    TableDescriptor.for_connector("kafka")
+    .schema(Schema.new_builder().column("value", DataTypes.STRING()).build())
+    .option("topic", "test-topic")
+    .option("properties.bootstrap.servers", "kafka:9092")
+    .option("properties.group.id", "flink-group")
+    .option("scan.startup.mode", "latest-offset")
+    .format(FormatDescriptor.for_format("raw").build())
+    .build()
 )
 
-# Create windowed table
-windowed_articles = articles\
-    .window(Slide
-        .over(lit(1).minutes)
-        .every(lit(10).seconds)
-        .on(col('event_time'))
-        .alias('w')
-    )\
-    .group_by(col('w'), col('title'))\
-    .select(
-        col('w').start.alias('window_start'),
-        col('w').end.alias('window_end'),
-        col('title'),
-        col('title').count.alias('total_articles'),
-        col('content').like('%válka%').count.alias('war_mentions')  
+# Sink pro tabulku článků
+table_env.create_temporary_table(
+    "article_table_sink",
+    TableDescriptor.for_connector("filesystem")
+    .schema(
+        Schema.new_builder()
+        .column("title", DataTypes.STRING())
+        .column("comment_count", DataTypes.INT())
+        .column("content", DataTypes.STRING())
+        .column("date_published", DataTypes.STRING())
+        .column("created_at", DataTypes.STRING())
+        .build()
     )
+    .option("path", "/files/out/article_table")
+    .format(FormatDescriptor.for_format("csv").option("field-delimiter", ";").build())
+    .build()
+)
 
-# Check for duplicates based on title
-distinct_articles = windowed_articles.distinct()
+# Sink pro názvy článků do konzole
+table_env.create_temporary_table(
+    "article_title_log_sink",
+    TableDescriptor.for_connector("print")
+    .schema(Schema.new_builder().column("title", DataTypes.STRING()).build())
+    .build()
+)
 
-# Create a statement set for executing multiple inserts
+# Sink pro aktivní články
+table_env.create_temporary_table(
+    "active_articles_sink",
+    TableDescriptor.for_connector("filesystem")
+    .schema(
+        Schema.new_builder()
+        .column("title", DataTypes.STRING())
+        .column("comment_count", DataTypes.INT())
+        .build()
+    )
+    .option("path", "/files/out/active_articles")
+    .format(FormatDescriptor.for_format("csv").option("field-delimiter", ";").build())
+    .build()
+)
+
+# Zpracování dat
+data = table_env.from_path("kafka_source")
+
+# Zpracovaná tabulka článků
+article_table = data.select(
+    parse_title(data.value).alias("title"),
+    parse_comment_count(data.value).alias("comment_count"),
+    parse_content(data.value).alias("content"),
+    parse_date_published(data.value).alias("date_published"),
+    current_time().alias("created_at"),
+)
+
+# Filtrování článků s více než 100 komentáři
+active_articles = article_table.filter(col("comment_count") > 100).select(
+    col("title"), col("comment_count")
+)
+
+# Dotaz pro vypisování názvu zpracovávaného článku
+article_title_log = article_table.select(article_table.title)
+
+# Dotaz pro ukládání názvu článku, který má více jak 100 komentářů
+active_articles = article_table.select(article_table.title, article_table.comment_count).filter(
+    article_table.comment_count > 100
+)
+
+# Přidání debug logů
+print("Pipeline is being built...")
+
+# Zápis výsledků do sinků pomocí pipeliny
 pipeline = table_env.create_statement_set()
-pipeline.add_insert('console_sink', article_titles)
-pipeline.add_insert('high_priority_sink', high_priority_articles)
-pipeline.add_insert('out_of_order_sink', out_of_order_articles)
-pipeline.add_insert('window_stats_sink', distinct_articles)
+pipeline.add_insert("article_table_sink", article_table)
+pipeline.add_insert("article_title_log_sink", article_title_log)
+pipeline.add_insert("active_articles_sink", active_articles)
 
-# Execute the pipeline
-pipeline.execute().wait()
+# Kontrola pipeline
+print("Pipeline prepared, executing now...")
+pipeline_result = pipeline.execute()
+pipeline_result.wait()
+print("Pipeline execution finished.")
 
-# funguje čtení kafky ale neukládá do souborů

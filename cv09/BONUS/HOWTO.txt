@@ -1,3 +1,5 @@
+cd .\cv09\BONUS\
+
 docker-compose build
 
 docker-compose up --scale taskmanager=2 -d
