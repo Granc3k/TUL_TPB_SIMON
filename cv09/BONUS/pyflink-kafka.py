@@ -155,7 +155,9 @@ parsed_data = (
 # Create dočasného pohledu
 table_env.create_temporary_view("parsed_data_view", parsed_data)
 
-# SQL dotaz pro detekci out-of-order (řazeno podle process_time místo publish_ts)
+# SQL dotaz pro detekci out-of-order
+# použití LAG() fce z SQL k získání předchozího publish_ts
+# následné porovnání současného a předchozího publish_ts
 out_of_order = table_env.sql_query(
     """
 SELECT 
