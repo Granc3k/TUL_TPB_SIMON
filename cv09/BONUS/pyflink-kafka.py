@@ -3,95 +3,92 @@ from pyflink.table import (
     TableEnvironment,
     DataTypes,
     Schema,
-    FormatDescriptor,
     TableDescriptor,
 )
-from pyflink.table.udf import udf
 from pyflink.table.expressions import col, lit
-from datetime import datetime
+from pyflink.table.udf import udf
+from pyflink.table.window import Slide
+from pyflink.common import Row
 import json
+import sys
+from datetime import datetime
+from dateutil import parser
 
-# Funkce pro převod JSON stringu na dictionary
-def parse_json(value):
+
+def debug_print(message):
+    # Print ladící zprávy na stderr (kdyby se používal grep na stdout, či jinačí hovadiny)
+    print(message, file=sys.stderr)
+
+
+# UDF pro parse JSONu do předdefinovaného ROW
+@udf(
+    result_type=DataTypes.ROW(
+        [
+            DataTypes.FIELD("title", DataTypes.STRING()),
+            DataTypes.FIELD("comment_count", DataTypes.INT()),
+            DataTypes.FIELD("publish_ts", DataTypes.TIMESTAMP(3)),
+            DataTypes.FIELD("content", DataTypes.STRING()),
+        ]
+    )
+)
+def parse_article(json_str):
+    # Load JSONu, extrahuje požadovaná pole a vrátí je jako Row
     try:
-        return json.loads(value)
+        data = json.loads(json_str)
+        title = data.get("title", "")
+        comment_count = int(data.get("comment_count", data.get("commentCount", 0)))
+        publish_date = data.get("datePublished", data.get("time", ""))
+
+        dt = parser.isoparse(publish_date) if publish_date else None
+
+        content = data.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(content)
+
+        return Row(
+            title=title, comment_count=comment_count, publish_ts=dt, content=content
+        )
     except Exception as e:
-        print(f"Failed to parse JSON: {e}")
-        return {}
-
-# UDFs pro parsing atributů z JSON
-@udf(result_type=DataTypes.STRING())
-def parse_title(value):
-    return parse_json(value).get("title", "")
-
-@udf(result_type=DataTypes.INT())
-def parse_comment_count(value):
-    return parse_json(value).get("commentCount", 0)
-
-@udf(result_type=DataTypes.STRING())
-def parse_content(value):
-    article = parse_json(value)
-    content_items = article.get("content", [])
-    if isinstance(content_items, list):
-        # Spojíme všechny části obsahu do jednoho řetězce
-        return " ".join(content_items).replace("\n", " ")
-    return ""
+        debug_print(f"Failed to parse JSON: {e}")
+        return Row(title="", comment_count=0, publish_ts=None, content="")
 
 
-@udf(result_type=DataTypes.STRING())
-def parse_date_published(value):
-    return parse_json(value).get("datePublished", "")
-
-@udf(result_type=DataTypes.STRING())
-def current_time():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-# Nastavení prostředí
+# Settings enviromentu pro stream processing
 env_settings = EnvironmentSettings.in_streaming_mode()
 table_env = TableEnvironment.create(environment_settings=env_settings)
 
-# Kafka zdroj
+debug_print("Environment set up.")
+debug_print("Creating tables...")
+
+# Define source tabulky z Kafky
 table_env.create_temporary_table(
     "kafka_source",
     TableDescriptor.for_connector("kafka")
-    .schema(Schema.new_builder().column("value", DataTypes.STRING()).build())
+    .schema(
+        Schema.new_builder()
+        .column("value", DataTypes.STRING())
+        .column_by_expression("process_time", "PROCTIME()")
+        .build()
+    )
     .option("topic", "test-topic")
     .option("properties.bootstrap.servers", "kafka:9092")
     .option("properties.group.id", "flink-group")
     .option("scan.startup.mode", "latest-offset")
-    .format(FormatDescriptor.for_format("raw").build())
-    .build()
+    .format("raw")
+    .build(),
 )
 
-# Sink pro tabulku článků
+# Output do konzole
 table_env.create_temporary_table(
-    "article_table_sink",
-    TableDescriptor.for_connector("filesystem")
-    .schema(
-        Schema.new_builder()
-        .column("title", DataTypes.STRING())
-        .column("comment_count", DataTypes.INT())
-        .column("content", DataTypes.STRING())
-        .column("date_published", DataTypes.STRING())
-        .column("created_at", DataTypes.STRING())
-        .build()
-    )
-    .option("path", "/files/out/article_table")
-    .format(FormatDescriptor.for_format("csv").option("field-delimiter", ";").build())
-    .build()
-)
-
-# Sink pro názvy článků do konzole
-table_env.create_temporary_table(
-    "article_title_log_sink",
+    "console_sink",
     TableDescriptor.for_connector("print")
     .schema(Schema.new_builder().column("title", DataTypes.STRING()).build())
-    .build()
+    .build(),
 )
 
-# Sink pro aktivní články
+# Output articlů s > 100 komentáři
 table_env.create_temporary_table(
-    "active_articles_sink",
+    "high_priority_sink",
     TableDescriptor.for_connector("filesystem")
     .schema(
         Schema.new_builder()
@@ -99,48 +96,119 @@ table_env.create_temporary_table(
         .column("comment_count", DataTypes.INT())
         .build()
     )
-    .option("path", "/files/out/active_articles")
-    .format(FormatDescriptor.for_format("csv").option("field-delimiter", ";").build())
-    .build()
+    .option("path", "/files/out/high_priority_articles")
+    .format("csv")
+    .build(),
 )
 
-# Zpracování dat
-data = table_env.from_path("kafka_source")
-
-# Zpracovaná tabulka článků
-article_table = data.select(
-    parse_title(data.value).alias("title"),
-    parse_comment_count(data.value).alias("comment_count"),
-    parse_content(data.value).alias("content"),
-    parse_date_published(data.value).alias("date_published"),
-    current_time().alias("created_at"),
+# Output out-of-order articlů
+table_env.create_temporary_table(
+    "out_of_order_sink",
+    TableDescriptor.for_connector("filesystem")
+    .schema(
+        Schema.new_builder()
+        .column("title", DataTypes.STRING())
+        .column("publish_date", DataTypes.STRING())
+        .column("prev_publish_date", DataTypes.STRING())
+        .build()
+    )
+    .option("path", "/files/out/out_of_order_articles")
+    .format("csv")
+    .build(),
 )
 
-# Filtrování článků s více než 100 komentáři
-active_articles = article_table.filter(col("comment_count") > 100).select(
-    col("title"), col("comment_count")
+# Output statistik do filu
+table_env.create_temporary_table(
+    "counts_sink",
+    TableDescriptor.for_connector("filesystem")
+    .schema(
+        Schema.new_builder()
+        .column("window_start", DataTypes.TIMESTAMP(3))
+        .column("window_end", DataTypes.TIMESTAMP(3))
+        .column("total_count", DataTypes.BIGINT())
+        .column("war_articles", DataTypes.BIGINT())
+        .build()
+    )
+    .option("path", "/files/out/counts")
+    .format("csv")
+    .option("sink.rolling-policy.rollover-interval", "1 min")
+    .option("sink.rolling-policy.file-size", "1MB")
+    .build(),
 )
 
-# Dotaz pro vypisování názvu zpracovávaného článku
-article_title_log = article_table.select(article_table.title)
+debug_print("Tables created.")
+debug_print("Creating pipeline...")
 
-# Dotaz pro ukládání názvu článku, který má více jak 100 komentářů
-active_articles = article_table.select(article_table.title, article_table.comment_count).filter(
-    article_table.comment_count > 100
+# Load a parse dat z Kafky
+parsed_data = (
+    table_env.from_path("kafka_source")
+    .select(parse_article(col("value")).alias("r"), col("process_time"))
+    .select(
+        col("r").get("title").alias("title"),
+        col("r").get("comment_count").alias("comment_count"),
+        col("r").get("publish_ts").alias("publish_ts"),
+        col("r").get("content").alias("content"),
+        col("process_time"),
+    )
 )
 
-# Přidání debug logů
-print("Pipeline is being built...")
+# Create dočasného pohledu
+table_env.create_temporary_view("parsed_data_view", parsed_data)
 
-# Zápis výsledků do sinků pomocí pipeliny
+# SQL dotaz pro detekci out-of-order (řazeno podle process_time místo publish_ts)
+out_of_order = table_env.sql_query(
+    """
+SELECT 
+    title,
+    CAST(publish_ts AS STRING) AS publish_date,
+    CAST(prev_publish_ts AS STRING) AS prev_publish_date
+FROM (
+    SELECT
+        title,
+        publish_ts,
+        LAG(publish_ts) OVER (ORDER BY process_time) AS prev_publish_ts
+    FROM parsed_data_view
+) t
+WHERE prev_publish_ts IS NOT NULL AND publish_ts < prev_publish_ts
+"""
+)
+
+# Agregace countů a válka-articlů v time oknech
+counts_table = (
+    table_env.from_path("parsed_data_view")
+    .window(
+        Slide.over(lit(1).minutes)
+        .every(lit(10).seconds)
+        .on(col("process_time"))
+        .alias("w")
+    )
+    .group_by(col("w"))
+    .select(
+        col("w").start.alias("window_start"),
+        col("w").end.alias("window_end"),
+        lit(1).count.alias("total_count"),
+        col("content").like("%válka%").cast(DataTypes.INT()).sum.alias("war_articles"),
+    )
+)
+
 pipeline = table_env.create_statement_set()
-pipeline.add_insert("article_table_sink", article_table)
-pipeline.add_insert("article_title_log_sink", article_title_log)
-pipeline.add_insert("active_articles_sink", active_articles)
 
-# Kontrola pipeline
-print("Pipeline prepared, executing now...")
-pipeline_result = pipeline.execute()
-pipeline_result.wait()
-print("Pipeline execution finished.")
+# Printy do jednotlivých sinků
+pipeline.add_insert(
+    "console_sink", table_env.from_path("parsed_data_view").select(col("title"))
+)
+pipeline.add_insert(
+    "high_priority_sink",
+    table_env.from_path("parsed_data_view")
+    .filter(col("comment_count") > 100)
+    .select(col("title"), col("comment_count")),
+)
+pipeline.add_insert("out_of_order_sink", out_of_order)
+pipeline.add_insert("counts_sink", counts_table)
 
+debug_print("Pipeline created.")
+debug_print("Executing pipeline...")
+
+pipeline.execute().wait()
+
+debug_print("Pipeline execution completed.")

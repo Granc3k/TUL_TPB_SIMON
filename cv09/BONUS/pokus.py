@@ -1,121 +1,109 @@
-from pyflink.table import EnvironmentSettings, TableEnvironment, DataTypes, Schema, FormatDescriptor, TableDescriptor
-from pyflink.table.window import Slide
-from pyflink.table.expressions import col, lit
+from pyflink.table import (
+    EnvironmentSettings,
+    TableEnvironment,
+    DataTypes,
+    Schema,
+    TableDescriptor,
+)
+from pyflink.table.expressions import col
+from pyflink.table import expressions as expr
+import sys
 
-# Set up the streaming environment
+
+# Fce pro print debug infa do stderr
+def debug_print(message):
+    print(message, file=sys.stderr)
+
+
+# Set upnutí stream env
 env_settings = EnvironmentSettings.in_streaming_mode()
 table_env = TableEnvironment.create(environment_settings=env_settings)
 
-# Create the Kafka source table
-table_env.execute_sql("""
-CREATE TABLE kafka_source (
-    title STRING,
-    comments INT,
-    publish_date STRING,
-    content STRING,
-    publish_ts TIMESTAMP(3),
-    event_time TIMESTAMP(3),
-    WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'test-topic',
-    'properties.bootstrap.servers' = 'kafka:9092',
-    'properties.group.id' = 'flink-group',
-    'format' = 'json',
-    'scan.startup.mode' = 'latest-offset'
+debug_print("Environment set up.")
+debug_print("Creating tables...")
+
+# Create source tejbl pro Kafku
+table_env.create_temporary_table(
+    "kafka_source",
+    TableDescriptor.for_connector("kafka")
+    .schema(Schema.new_builder().column("value", DataTypes.STRING()).build())
+    .option("topic", "test-topic")
+    .option("properties.bootstrap.servers", "kafka:9092")
+    .option("properties.group.id", "flink-group")
+    .option("scan.startup.mode", "latest-offset")
+    .format("raw")
+    .build(),
 )
-""")
 
-# Create sink tables
-table_env.execute_sql("""
-CREATE TABLE console_sink (
-    title STRING
-) WITH (
-    'connector' = 'print'
+# Creatnutí sink tejblů
+# Sink na raw data do konzole
+table_env.create_temporary_table(
+    "console_sink",
+    TableDescriptor.for_connector("print")
+    .schema(Schema.new_builder().column("data", DataTypes.STRING()).build())
+    .option("print-identifier", "")
+    .build(),
 )
-""")
 
-table_env.execute_sql("""
-CREATE TABLE high_priority_sink (
-    title STRING,
-    comments INT
-) WITH (
-    'connector' = 'filesystem',
-    'path' = '/files/high_priority_articles.csv',
-    'format' = 'csv'
+# High priority artikly tejbla
+table_env.create_temporary_table(
+    "high_priority_sink",
+    TableDescriptor.for_connector("filesystem")
+    .schema(Schema.new_builder().column("article_info", DataTypes.STRING()).build())
+    .option("path", "/files/out/high_priority_articles")
+    .format("csv")
+    .build(),
 )
-""")
 
-table_env.execute_sql("""
-CREATE TABLE out_of_order_sink (
-    title STRING,
-    publish_date STRING,
-    previous_publish_date STRING
-) WITH (
-    'connector' = 'filesystem',
-    'path' = '/files/out_of_order_articles.csv',
-    'format' = 'csv'
+# Out of order artikly tejbla
+table_env.create_temporary_table(
+    "out_of_order_sink",
+    TableDescriptor.for_connector("filesystem")
+    .schema(Schema.new_builder().column("article_info", DataTypes.STRING()).build())
+    .option("path", "/files/out/out_of_order_articles")
+    .format("csv")
+    .build(),
 )
-""")
 
-table_env.execute_sql("""
-CREATE TABLE window_stats_sink (
-    window_start TIMESTAMP(3),
-    window_end TIMESTAMP(3),
-    title STRING,
-    total_articles BIGINT,
-    war_mentions BIGINT
-) WITH (
-    'connector' = 'filesystem',
-    'path' = '/files/window_stats.csv',
-    'format' = 'csv'
+# Basic count sink tejbla
+table_env.create_temporary_table(
+    "counts_sink",
+    TableDescriptor.for_connector("filesystem")
+    .schema(Schema.new_builder().column("stats", DataTypes.STRING()).build())
+    .option("path", "/files/out/counts")
+    .format("csv")
+    .build(),
 )
-""")
 
-# Process data
-articles = table_env.from_path("kafka_source")
+debug_print("Tables created.")
+debug_print("Creating pipeline...")
 
-# Print article titles to console
-article_titles = articles.select(col('title'))
-article_titles.execute_insert('console_sink').wait()
+# Create pipeline
+pipeline = table_env.create_statement_set()
 
-# Detect active articles with more than 100 comments
-high_priority_articles = articles.filter(col('comments') > 100).select(col('title'), col('comments'))
-high_priority_articles.execute_insert('high_priority_sink').wait()
+# Base tejbla
+kafka_table = table_env.from_path("kafka_source")
 
-# Detect out-of-order articles
-articles = articles.add_or_replace_columns(
-    col("publish_date").cast(DataTypes.TIMESTAMP(3)).alias("publish_ts")
+# Raw data do konzole
+pipeline.add_insert("console_sink", kafka_table.select(col("value").alias("data")))
+
+# Priority artikly
+pipeline.add_insert(
+    "high_priority_sink", kafka_table.select(col("value").alias("article_info"))
 )
-out_of_order_articles = articles.filter(
-    col("publish_ts") < lit("1970-01-01 00:00:00.000").cast(DataTypes.TIMESTAMP(3))  # Example condition
-).select(
-    col('title'),
-    col('publish_date'),
-    lit("1970-01-01 00:00:00.000").alias("previous_publish_date")
+
+# Out of order artikly
+pipeline.add_insert(
+    "out_of_order_sink", kafka_table.select(col("value").alias("article_info"))
 )
-out_of_order_articles.execute_insert('out_of_order_sink').wait()
 
-# Create windowed table
-windowed_articles = articles\
-    .window(Slide
-        .over(lit(1).minutes)
-        .every(lit(10).seconds)
-        .on(col('event_time'))
-        .alias('w')
-    )\
-    .group_by(col('w'), col('title'))\
-    .select(
-        col('w').start.alias('window_start'),
-        col('w').end.alias('window_end'),
-        col('title'),
-        col('title').count.alias('total_articles'),
-        col('content').like('%válka%').count.alias('war_mentions')  
-    )
+# Basic county
+pipeline.add_insert("counts_sink", kafka_table.select(col("value").alias("stats")))
 
-# Check for duplicates based on title
-distinct_articles = windowed_articles.distinct()
-distinct_articles.execute_insert('window_stats_sink').wait()
+debug_print("Pipeline created.")
+debug_print("Executing pipeline...")
 
-# Execute the pipeline
-table_env.execute("article_processing_pipeline")
+# Executnutí pajplajny
+pipeline.execute().wait()
+
+debug_print("Pipeline execution completed.")
