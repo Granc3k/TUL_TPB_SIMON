@@ -1,45 +1,57 @@
-// 1. Vypsání 10 libovolných uzlů
+# made by: Martin "Granc3k" Šimon
+
+1. Vypsání 10 libovolných uzlů
+------------------------------
 MATCH (n)
 RETURN n
 LIMIT 10;
 
-// 2. Vypsání 10 libovolných filmů
+2. Vypsání 10 libovolných filmů
+--------------------------------
 MATCH (m:Movie)
 RETURN m.title AS Movie
 LIMIT 10;
 
-// 3. Vypsání herců, kteří hráli ve filmu The Matrix, seřazených podle jména
+3. Vypsání herců, kteří hráli ve filmu The Matrix, seřazených podle jména
+-------------------------------------------------------------------------
 MATCH (p:Person)-[:ACTED_IN]->(m:Movie {title: 'The Matrix'})
 RETURN p.name AS Actor
 ORDER BY p.name;
 
-// 4. Vypsání filmů, ve kterých hrál Keanu Reeves
+4. Vypsání filmů, ve kterých hrál Keanu Reeves
+----------------------------------------------
 MATCH (p:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(m:Movie)
 RETURN m.title AS Movie;
 
-// 5. Vypsání počtu filmů, ve kterých hrál Keanu Reeves
+5. Vypsání počtu filmů, ve kterých hrál Keanu Reeves
+----------------------------------------------------
 MATCH (p:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(m:Movie)
 RETURN COUNT(m) AS NumberOfMovies;
 
-// 6. Vypsání filmů, ve kterých hráli Keanu Reeves a Carrie-Anne Moss
+6. Vypsání filmů, ve kterých hráli Keanu Reeves a Carrie-Anne Moss
+------------------------------------------------------------------
 MATCH (p1:Person {name: 'Keanu Reeves'})-[:ACTED_IN]->(m:Movie)<-[:ACTED_IN]-(p2:Person {name: 'Carrie-Anne Moss'})
 RETURN m.title AS Movie;
 
-// 7. Přidání nového filmu "John Wick", ve kterém bude hrát Keanu Reeves
+7. Přidání nového filmu "John Wick", ve kterém bude hrát Keanu Reeves
+-------------------------------------------------------------------------
 CREATE (jw:Movie {title: 'John Wick', released: 2014, tagline: 'Revenge is everything'})
 CREATE (p:Person {name: 'Keanu Reeves'})-[:ACTED_IN {roles: ['John Wick']}]->(jw);
 
-// 8. Úprava herce Keanu Reeves, přidání libovolné vlastnosti
+8. Úprava herce Keanu Reeves, přidání libovolné vlastnosti
+-----------------------------------------
 MATCH (p:Person {name: 'Keanu Reeves'})
 SET p.birthplace = 'Eškere, More Dyk'
 RETURN p;
 
-// Bonus 1: Vypsání průměrného výdělku herců
+Bonus 1: Vypsání průměrného výdělku herců
+-----------------------------------------
 MATCH (p:Person)-[a:ACTED_IN]->(m:Movie)
 RETURN p.name AS Actor, AVG(a.earnings) AS AverageEarnings
 ORDER BY AverageEarnings DESC;
 
-// Bonus 2: Nalezení kontaktů Toma Hankse narozených v roce 1960 nebo později, kteří vydělali alespoň $10M za film
+Bonus 2: Nalezení kontaktů Toma Hankse narozených v roce 1960 nebo později, kteří vydělali alespoň $10M za film
+---------------------------------------------------------------------------------------------------------------
 MATCH (t:Person {name: 'Tom Hanks'})-[:HAS_CONTACT]->(c:Person)
 WHERE c.born >= 1960
 WITH c
@@ -48,7 +60,8 @@ WHERE a.earnings >= 10000000
 RETURN c.name AS Contact, c.born AS BirthYear, a.earnings AS Earnings
 ORDER BY a.earnings DESC;
 
-// Bonus 3: Přidání labelu Rich hercům, kteří vydělali více než $50M
+Bonus 3: Přidání labelu Rich hercům, kteří vydělali více než $50M
+----------------------------------------------------------------
 MATCH (p:Person)-[a:ACTED_IN]->(m:Movie)
 WITH p, SUM(a.earnings) AS TotalEarnings
 WHERE TotalEarnings > 50000000
@@ -56,7 +69,8 @@ SET p:Rich
 RETURN p.name AS RichActor, TotalEarnings
 ORDER BY TotalEarnings DESC;
 
-// Bonus 4: Dotaz pro vytvoření vztahu VIEWED mezi Keanu Reeves a Top Gun a inkrementace počtu zhlédnutí
+Bonus 4: Dotaz pro vytvoření vztahu VIEWED mezi Keanu Reeves a Top Gun a inkrementace počtu zhlédnutí
+------------------------------------------------------------------------------------------------------
 MATCH (p:Person {name: 'Keanu Reeves'}), (m:Movie {title: 'Top Gun'})
 MERGE (p)-[v:VIEWED]->(m)
 ON CREATE SET v.views = 1

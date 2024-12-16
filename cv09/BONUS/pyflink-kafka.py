@@ -1,3 +1,4 @@
+# made by Martin "Granc3k" Šimon
 from pyflink.table import (
     EnvironmentSettings,
     TableEnvironment,
